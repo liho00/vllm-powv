@@ -141,6 +141,7 @@ class OpenAIServingChat(OpenAIServing):
                     messages=request.messages,
                     chat_template=request.chat_template or self.chat_template,
                     add_generation_prompt=request.add_generation_prompt,
+                    continue_final_message=request.continue_final_message,
                     tools=tool_dicts,
                     documents=request.documents,
                     **(request.chat_template_kwargs or {}),
@@ -151,6 +152,7 @@ class OpenAIServingChat(OpenAIServing):
                     conversation=conversation,
                     chat_template=request.chat_template or self.chat_template,
                     add_generation_prompt=request.add_generation_prompt,
+                    continue_final_message=request.continue_final_message,
                     tools=tool_dicts,
                     documents=request.documents,
                     **(request.chat_template_kwargs or {}),
@@ -186,9 +188,6 @@ class OpenAIServingChat(OpenAIServing):
             raw_request.state.request_metadata = request_metadata
 
         try:
-            guided_decode_logits_processor = (
-                await self._guided_decode_logits_processor(request, tokenizer))
-
             if isinstance(prompt, str):
                 prompt_inputs = self._tokenize_prompt_input(
                     request,
@@ -207,8 +206,6 @@ class OpenAIServingChat(OpenAIServing):
             assert prompt_inputs is not None
 
             sampling_params = request.to_sampling_params(
-                tokenizer,
-                guided_decode_logits_processor,
                 default_max_tokens=self.max_model_len -
                 len(prompt_inputs["prompt_token_ids"]))
 
@@ -239,6 +236,7 @@ class OpenAIServingChat(OpenAIServing):
                 lora_request=lora_request,
                 trace_headers=trace_headers,
                 prompt_adapter_request=prompt_adapter_request,
+                priority=request.priority,
             )
         except ValueError as e:
             # TODO: Use a vllm-specific Validation Error
@@ -362,7 +360,7 @@ class OpenAIServingChat(OpenAIServing):
 
                     # Send response to echo the input portion of the
                     # last message
-                    if request.echo:
+                    if request.echo or request.continue_final_message:
                         last_msg_content: str = ""
                         if conversation and "content" in conversation[
                                 -1] and conversation[-1].get("role") == role:
@@ -722,7 +720,7 @@ class OpenAIServingChat(OpenAIServing):
                 stop_reason=output.stop_reason)
             choices.append(choice_data)
 
-        if request.echo:
+        if request.echo or request.continue_final_message:
             last_msg_content = ""
             if conversation and "content" in conversation[-1] and conversation[
                     -1].get("role") == role:
